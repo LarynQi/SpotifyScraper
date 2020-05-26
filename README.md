@@ -23,3 +23,6 @@
 
 ### Resources
   - [Duong Vu's WordCloud Tutorial](https://www.datacamp.com/community/tutorials/wordcloud-python)
+
+### TODO's
+  - [Visualizing current song](https://www.youtube.com/watch?v=5LfD-hxbX0E)
