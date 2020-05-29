@@ -3,21 +3,17 @@ import spotipy
 import spotipy.util as util
 import json
 import os
-
 from spotipy.oauth2 import SpotifyClientCredentials
-
 import numpy as np
-import pandas as pd
 from os import path
 from PIL import Image
 from wordcloud import WordCloud, STOPWORDS, ImageColorGenerator
 import matplotlib.pyplot as plt
-
+import requests
 
 client_credentials_manager = SpotifyClientCredentials()
 sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 AUTH_TOKEN = client_credentials_manager.get_access_token(as_dict=False)
-print(AUTH_TOKEN)
 
 def show_tracks(tracks, sp):
 	for i, item in enumerate(tracks['items']):
@@ -31,9 +27,12 @@ def show_tracks(tracks, sp):
 def main():
 	import os
 	path = os.path.dirname(os.path.abspath(__file__))
-	scope = 'playlist-read-private, user-read-playback-state'
+	scope = 'playlist-read-private user-read-playback-state'
+	setting = None
 	if len(sys.argv) > 1:
 		username = sys.argv[1]
+		if len(sys.argv) > 2:
+			setting = sys.argv[2]
 	else:
 		print('Usage: %s username' % (sys.argv[0],))
 		sys.exit()
@@ -47,20 +46,45 @@ def main():
 		sp = spotipy.Spotify(auth=token)
 		playlists = sp.user_playlists(username)
 		result = ''
+		options = {
+			'1.': 'artists',
+			'1' : 'artists',
+			'Artists': 'artists',
+			'artists': 'artists',
+			'2.': 'genres',
+			'2': 'genres',
+			'Genres': 'genres',
+			'genres': 'genres'
+		}
+		print('Select what you would like to see visualized:')
+		print('1. Artists')
+		print('2. Genres')
+		content = input()
+		while content not in options:
+			if content == 'q' or content == 'quit' or content == 'exit':
+				sys.exit()
+			print('Invalid Option')
+			content = input()
+		content = options[content]
+		print('Scraping...')
 		for playlist in playlists['items']:
 			# Can only access others' public playlists
-			print(playlist['name'])
+			# print(playlist['name'])
 			if playlist['owner']['id'] == username:
 				try:
 					tracks = sp.playlist(playlist['id'], fields='tracks, next')['tracks']
 				except Exception as e:
 					print(e)
 					continue
-				result += add_genres(tracks, sp)
+				result += collect_data(tracks, sp, content)
 				while tracks['next']:
 					tracks = sp.next(tracks)
-					result += add_genres(tracks, sp)
-		visualize(result, username)
+					result += collect_data(tracks, sp, content)
+		print('Done!')
+		if setting == 'ds':
+			visualize(result, username, content, False)
+		else:
+			visualize(result, username, content)
 				# print()
 				# print(playlist['name'])
 				# print('   total tracks', playlist['tracks']['total'])
@@ -87,46 +111,59 @@ def main():
 	else:
 		print('Cannot get token for', username)
 
-def add_genres(tracks, sp):
+def collect_data(tracks, sp, content):
 	result = ''
+	if content == 'artists':
+		collect = add_artist
+	elif content == 'genres':
+		collect = add_genre
 	for i, item in enumerate(tracks['items']):
 		track = item['track']
-		# print('   %d %32.32s %s %s' % (i + 1, track['artists'][0]['name'], track['name'], sp.audio_features(track['id'])))
-		# print('   %d %32.32s %s %s' % (i + 1, track['artists'][0]['name'], track['name'], sp.currently_playing()))
-		# print('   %d %32.32s %s' % (i + 1, track['artists'][0]['name'], track['name']))
-		# print(track['name'], sp.audio_features(track['id']))
-		# print(sp.currently_playing())
 		for artist in track['artists']:
-			artist_id = artist['id']
-			# print(artist_id, artist['name'])
-			# print(artist_id)
-
-			### UNCOMMENT
-			# try:
-			# 	print(artist['name'])
-			# 	os.system(f'curl --max-time 30 -X "GET" "https://api.spotify.com/v1/artists/{artist_id}" -H "Accept: application/json" -H "Content-Type: application/json" -H "Authorization: Bearer {AUTH_TOKEN}" > data/data.json')
-			# 	# os.system(f'curl -X "GET" "https://api.spotify.com/v1/artists/{artist_id}" -H "Accept: application/json" -H "Content-Type: application/json" -H "Authorization: Bearer {os.environ.get("AUTH_TOKEN")}" > data/data.json')
-			# 	with open('./data/data.json', 'r') as f:
-			# 		artist_data = json.load(f)
-			# 	for genre in artist_data['genres']:
-			# 		result += f'{genre} '
-			# except Exception as e:
-			# 	print(e)
-			# 	pass
-
-
-			add = artist['name']
-			if 'The' in add:
-				add = add[:add.index('The')] + add[add.index('The') + 4:]
-			# result += f'{artist["name"]} '
-			result += f'{add} '
-
-
-
-	# result = filter()
+			result += collect(artist)
 	return result
 
-def visualize(genres, username):
+def add_genre(artist):
+	### UNCOMMENT
+	# try:
+	# 	print(artist['name'])
+	# 	os.system(f'curl --max-time 30 -X "GET" "https://api.spotify.com/v1/artists/{artist_id}" -H "Accept: application/json" -H "Content-Type: application/json" -H "Authorization: Bearer {AUTH_TOKEN}" > data/data.json')
+	# 	# os.system(f'curl -X "GET" "https://api.spotify.com/v1/artists/{artist_id}" -H "Accept: application/json" -H "Content-Type: application/json" -H "Authorization: Bearer {os.environ.get("AUTH_TOKEN")}" > data/data.json')
+	# 	with open('./data/data.json', 'r') as f:
+	# 		artist_data = json.load(f)
+	# 	for genre in artist_data['genres']:
+	# 		result += f'{genre} '
+	# except Exception as e:
+	# 	print(e)
+	# 	pass
+	artist_id = artist['id']
+	result = ''
+	# https://curl.trillworks.com/
+	headers = {
+		'Accept': 'application/json',
+		'Content-Type': 'application/json',
+		'Authorization': f'Bearer {AUTH_TOKEN}'
+	}
+	url = f'https://api.spotify.com/v1/artists/{artist_id}'
+	r = requests.get(url, headers=headers)
+	artist_data = r.json()
+	try:
+		for genre in artist_data['genres']:
+			result += f'{genre} '
+	except Exception as e:
+		print(f'No artist data found for {artist["name"]}')
+	return result
+
+def add_artist(artist):
+	artist_id = artist['id']
+	result = ''
+	add = artist['name']
+	if 'The' in add:
+		add = add[:add.index('The')] + add[add.index('The') + 4:]
+	result += f'{add} '
+	return result
+
+def visualize(genres, username, content, save=True):
 	mask = np.array(Image.open('assets/mask3.jpg'))
 	# t_mask = np.ndarray((mask.shape[0], mask.shape[1]), np.int32)
 	# for i in range(len(mask)):
@@ -142,15 +179,17 @@ def visualize(genres, username):
 	while check in os.listdir('./assets'):
 		count += 1
 		check = f'{username}-{count}.png'
-	wc.to_file('./assets/' + check)
+	if save:
+		wc.to_file('./assets/' + check)
 
 	colors = ImageColorGenerator(mask)
 	plt.figure(figsize=[12.5, 5])
 	# plt.imshow(wc, interpolation='bilinear')
-	plt.title(username)
+	plt.title(f'{username}\'s {content}', fontsize=18)
 	plt.imshow(wc.recolor(color_func=colors), interpolation='bilinear')
 	plt.axis('off')
-	plt.savefig(f'./assets/{username}-{count}-plot.png')
+	if save:
+		plt.savefig(f'./assets/{username}-{count}-plot.png')
 	plt.show()
 
 # def reformat(val):
@@ -158,5 +197,6 @@ def visualize(genres, username):
 # 		return 255
 # 	else:
 # 		return val
+
 if __name__ == '__main__':
 	main()
